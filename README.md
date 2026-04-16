@@ -11,9 +11,11 @@
 5. [Event Handling in React](#event-handling-in-react)
 6. [React Hooks Deep Dive](#react-hooks-deep-dive)
 7. [Context API for State Management](#context-api-for-state-management)
-8. [Best Practices and Code Quality](#best-practices-and-code-quality)
-9. [Sample Application Components](#sample-application-components)
-10. [Building Towards a Complete Application](#building-towards-a-complete-application)
+8. [React Hooks: useMemo and useReducer](#react-hooks-usememo-and-usereducer)
+9. [Introduction to .NET Web API and REST](#introduction-to-net-web-api-and-rest)
+10. [Best Practices and Code Quality](#best-practices-and-code-quality)
+11. [Sample Application Components](#sample-application-components)
+12. [Building Towards a Complete Application](#building-towards-a-complete-application)
 
 ---
 
@@ -2207,9 +2209,580 @@ export const AppProviders: React.FC<{children: ReactNode}> = ({ children }) => {
 
 ---
 
+## React Hooks: useMemo and useReducer
+
+React provides a rich set of hooks beyond `useState` and `useEffect`. Two particularly important hooks for building scalable applications are `useMemo` and `useReducer`. Understanding when and how to use them will help you write performant, maintainable code.
+
+### useMemo
+
+#### What is useMemo?
+
+`useMemo` is a React hook that **memoizes** (caches) the result of an expensive computation. It takes a function and a dependency array, and only re-runs the function when one of the dependencies changes. On every other render, it returns the previously cached result.
+
+```tsx
+const memoizedValue = useMemo(() => computeExpensiveValue(a, b), [a, b]);
+```
+
+Think of it like a spreadsheet cell that contains a formula: the cell only recalculates when its input cells change. If nothing changes, it just shows the last result.
+
+#### When to Use useMemo
+
+1. **Expensive computations** — filtering, sorting, or transforming large datasets
+2. **Referential equality** — when a child component wrapped in `React.memo` receives an object or array as a prop, `useMemo` prevents creating a new reference on every render
+3. **Derived data** — computing values from state or props that would otherwise be recalculated on every render
+
+#### When NOT to Use useMemo
+
+- For simple or fast calculations — the overhead of memoization can exceed the cost of recalculating
+- For primitive values that don't change — React already handles these efficiently
+- As a premature optimization — always measure first with React DevTools Profiler
+
+#### Example: Filtering and Sorting a Product List
+
+This example demonstrates a real-world use case — a product catalog where the user can search and sort products. Without `useMemo`, every keystroke in the search box would re-filter AND re-sort the entire list, even if only the sort order changed (or vice versa).
+
+```tsx
+import React, { useState, useMemo } from 'react';
+
+interface Product {
+  id: number;
+  name: string;
+  price: number;
+  category: string;
+  inStock: boolean;
+}
+
+const ProductCatalog: React.FC<{ products: Product[] }> = ({ products }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'name' | 'price'>('name');
+  const [showInStockOnly, setShowInStockOnly] = useState(false);
+
+  // useMemo ensures this only recalculates when products, searchTerm,
+  // sortBy, or showInStockOnly change — NOT on every render.
+  const filteredAndSortedProducts = useMemo(() => {
+    console.log('Recalculating filtered products...'); // You'd see this only when deps change
+
+    let result = products;
+
+    // Filter by search term
+    if (searchTerm) {
+      result = result.filter(product =>
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.category.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Filter by stock status
+    if (showInStockOnly) {
+      result = result.filter(product => product.inStock);
+    }
+
+    // Sort
+    result = [...result].sort((a, b) => {
+      if (sortBy === 'name') return a.name.localeCompare(b.name);
+      return a.price - b.price;
+    });
+
+    return result;
+  }, [products, searchTerm, sortBy, showInStockOnly]);
+
+  // This statistics calculation is also memoized separately because it
+  // only depends on the filtered results, not the sort order.
+  const stats = useMemo(() => ({
+    total: filteredAndSortedProducts.length,
+    avgPrice: filteredAndSortedProducts.length > 0
+      ? filteredAndSortedProducts.reduce((sum, p) => sum + p.price, 0) / filteredAndSortedProducts.length
+      : 0,
+    inStockCount: filteredAndSortedProducts.filter(p => p.inStock).length,
+  }), [filteredAndSortedProducts]);
+
+  return (
+    <div>
+      <div className="controls">
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Search products..."
+        />
+        <select value={sortBy} onChange={(e) => setSortBy(e.target.value as 'name' | 'price')}>
+          <option value="name">Sort by Name</option>
+          <option value="price">Sort by Price</option>
+        </select>
+        <label>
+          <input
+            type="checkbox"
+            checked={showInStockOnly}
+            onChange={(e) => setShowInStockOnly(e.target.checked)}
+          />
+          In stock only
+        </label>
+      </div>
+
+      <div className="stats">
+        <p>Showing {stats.total} products | Avg price: ${stats.avgPrice.toFixed(2)} | In stock: {stats.inStockCount}</p>
+      </div>
+
+      <ul>
+        {filteredAndSortedProducts.map(product => (
+          <li key={product.id}>
+            {product.name} — ${product.price.toFixed(2)}
+            {!product.inStock && <span className="out-of-stock"> (Out of Stock)</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+```
+
+> **Why use `[...result].sort()` instead of `result.sort()`?** The `sort()` method mutates the original array. Since `result` is derived from `products` (which is a prop), mutating it could cause unexpected side effects. Spreading into a new array (`[...result]`) creates a copy, keeping the original data intact. This is a fundamental React principle: **never mutate data directly**.
+
+---
+
+### useReducer
+
+#### What is useReducer?
+
+`useReducer` is a React hook for managing **complex state logic**. It is an alternative to `useState` that follows the same pattern as Redux: you define a **reducer function** that takes the current state and an **action**, and returns the new state.
+
+```tsx
+const [state, dispatch] = useReducer(reducer, initialState);
+```
+
+- **`state`** — the current state value
+- **`dispatch`** — a function you call with an action to trigger a state transition
+- **`reducer`** — a pure function: `(state, action) => newState`
+- **`initialState`** — the starting state value
+
+#### When to Use useReducer
+
+1. **Multiple related state values** — when you have several pieces of state that are updated together (e.g., a form with loading, error, and data states)
+2. **Complex state transitions** — when the next state depends on the previous state in non-trivial ways
+3. **Action-based updates** — when you want to describe *what happened* (e.g., `"ADD_ITEM"`, `"REMOVE_ITEM"`) rather than *what the new state should be*
+4. **State that's updated from many places** — `dispatch` has a stable identity (it never changes between renders), making it safe to pass down without `useCallback`
+
+#### When to Use useState Instead
+
+- For simple, independent state values (a boolean toggle, a single string input)
+- When state transitions are straightforward (set to a new value)
+- When you don't need the structure that actions provide
+
+#### Example: Shopping Cart with useReducer
+
+A shopping cart is a classic use case for `useReducer` because it has multiple related actions (add, remove, update quantity, clear) that all modify the same data structure. Using `useState` for this would require multiple setter functions that could get out of sync.
+
+```tsx
+import React, { useReducer, useMemo } from 'react';
+
+// Define the shape of a cart item and the overall cart state
+interface CartItem {
+  id: number;
+  name: string;
+  price: number;
+  quantity: number;
+}
+
+interface CartState {
+  items: CartItem[];
+  isOpen: boolean;
+}
+
+// Define all possible actions using a discriminated union.
+// This means TypeScript can narrow the type inside the reducer
+// based on the `type` field — you get autocomplete for the payload!
+type CartAction =
+  | { type: 'ADD_ITEM'; payload: Omit<CartItem, 'quantity'> }
+  | { type: 'REMOVE_ITEM'; payload: { id: number } }
+  | { type: 'UPDATE_QUANTITY'; payload: { id: number; quantity: number } }
+  | { type: 'CLEAR_CART' }
+  | { type: 'TOGGLE_CART' };
+
+const initialCartState: CartState = {
+  items: [],
+  isOpen: false,
+};
+
+// The reducer is a PURE function — it takes state + action and returns
+// a new state object. It never mutates the existing state.
+function cartReducer(state: CartState, action: CartAction): CartState {
+  switch (action.type) {
+    case 'ADD_ITEM': {
+      const existingItem = state.items.find(item => item.id === action.payload.id);
+      if (existingItem) {
+        // Item already in cart — increment quantity
+        return {
+          ...state,
+          items: state.items.map(item =>
+            item.id === action.payload.id
+              ? { ...item, quantity: item.quantity + 1 }
+              : item
+          ),
+        };
+      }
+      // New item — add with quantity 1
+      return {
+        ...state,
+        items: [...state.items, { ...action.payload, quantity: 1 }],
+      };
+    }
+
+    case 'REMOVE_ITEM':
+      return {
+        ...state,
+        items: state.items.filter(item => item.id !== action.payload.id),
+      };
+
+    case 'UPDATE_QUANTITY':
+      if (action.payload.quantity <= 0) {
+        // Quantity zero or negative — remove the item
+        return {
+          ...state,
+          items: state.items.filter(item => item.id !== action.payload.id),
+        };
+      }
+      return {
+        ...state,
+        items: state.items.map(item =>
+          item.id === action.payload.id
+            ? { ...item, quantity: action.payload.quantity }
+            : item
+        ),
+      };
+
+    case 'CLEAR_CART':
+      return { ...state, items: [] };
+
+    case 'TOGGLE_CART':
+      return { ...state, isOpen: !state.isOpen };
+
+    default:
+      return state;
+  }
+}
+
+const ShoppingCart: React.FC = () => {
+  const [cart, dispatch] = useReducer(cartReducer, initialCartState);
+
+  // useMemo to compute derived values from the cart state
+  const cartSummary = useMemo(() => ({
+    totalItems: cart.items.reduce((sum, item) => sum + item.quantity, 0),
+    totalPrice: cart.items.reduce((sum, item) => sum + item.price * item.quantity, 0),
+  }), [cart.items]);
+
+  // Sample products to add to the cart
+  const sampleProducts = [
+    { id: 1, name: 'React Book', price: 29.99 },
+    { id: 2, name: 'TypeScript Guide', price: 34.99 },
+    { id: 3, name: 'Node.js Handbook', price: 24.99 },
+  ];
+
+  return (
+    <div>
+      <h2>Shopping Cart Demo</h2>
+
+      {/* Product list */}
+      <div className="product-list">
+        <h3>Products</h3>
+        {sampleProducts.map(product => (
+          <div key={product.id} className="product-item">
+            <span>{product.name} — ${product.price.toFixed(2)}</span>
+            <button onClick={() => dispatch({ type: 'ADD_ITEM', payload: product })}>
+              Add to Cart
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Cart toggle */}
+      <button onClick={() => dispatch({ type: 'TOGGLE_CART' })}>
+        🛒 Cart ({cartSummary.totalItems})
+      </button>
+
+      {/* Cart contents */}
+      {cart.isOpen && (
+        <div className="cart-panel">
+          <h3>Your Cart</h3>
+          {cart.items.length === 0 ? (
+            <p>Your cart is empty</p>
+          ) : (
+            <>
+              {cart.items.map(item => (
+                <div key={item.id} className="cart-item">
+                  <span>{item.name} — ${item.price.toFixed(2)}</span>
+                  <div className="quantity-controls">
+                    <button onClick={() => dispatch({
+                      type: 'UPDATE_QUANTITY',
+                      payload: { id: item.id, quantity: item.quantity - 1 }
+                    })}>−</button>
+                    <span>{item.quantity}</span>
+                    <button onClick={() => dispatch({
+                      type: 'UPDATE_QUANTITY',
+                      payload: { id: item.id, quantity: item.quantity + 1 }
+                    })}>+</button>
+                  </div>
+                  <button onClick={() => dispatch({ type: 'REMOVE_ITEM', payload: { id: item.id } })}>
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <div className="cart-total">
+                <strong>Total: ${cartSummary.totalPrice.toFixed(2)}</strong>
+              </div>
+              <button onClick={() => dispatch({ type: 'CLEAR_CART' })}>
+                Clear Cart
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default ShoppingCart;
+```
+
+> **Why is the reducer a pure function?** A pure function always returns the same output for the same input and has no side effects. This makes state transitions predictable and testable — you can unit test your reducer without rendering any React components. Just pass in a state and an action and assert on the output.
+
+> **Why use a discriminated union for actions?** The `type` field acts as a discriminator that TypeScript uses to narrow the action type inside each `case` branch. In the `'ADD_ITEM'` case, TypeScript knows that `action.payload` has `id`, `name`, and `price` fields. In the `'CLEAR_CART'` case, TypeScript knows there's no payload at all. This eliminates runtime errors from accessing fields that don't exist.
+
+> **Why does `dispatch` not need `useCallback`?** React guarantees that the `dispatch` function returned by `useReducer` has a **stable identity** — it never changes between renders. This means you can safely pass `dispatch` to child components without wrapping it in `useCallback`, and memoized children won't re-render because of it. This is one of the ergonomic advantages `useReducer` has over `useState` for complex state.
+
+---
+
+## Introduction to .NET Web API and REST
+
+Before diving into best practices for frontend code, it's important to understand the backend technology that React applications commonly communicate with. In this course, we use **.NET 10** to build Web APIs that serve data to our React frontend.
+
+### What is a REST API?
+
+**REST** (Representational State Transfer) is an architectural style for designing networked applications. A REST API exposes **resources** (like users, products, or orders) at URL endpoints and uses standard **HTTP verbs** to perform operations on those resources.
+
+REST APIs are the most common way for frontend applications to communicate with backend servers. When your React app calls `fetch('/api/users')`, it's making a REST API request.
+
+#### Core Principles of REST
+
+1. **Client-Server Separation** — The frontend (React) and backend (.NET) are independent. They communicate only through HTTP requests and responses. This means you can rebuild the entire frontend without touching the API, or swap the backend from .NET to Node.js without changing the React code.
+
+2. **Stateless** — Each request contains all the information the server needs to process it. The server doesn't "remember" previous requests. Authentication is handled by sending a token (like a JWT) with every request, not by server-side sessions.
+
+3. **Resource-Based URLs** — URLs represent resources (nouns), not actions (verbs):
+   - ✅ `GET /api/users` — good (resource-based)
+   - ❌ `GET /api/getUsers` — bad (action-based)
+
+4. **Standard HTTP Methods** — Operations on resources are expressed through HTTP verbs (see below), not through URL naming.
+
+5. **JSON Format** — REST APIs typically send and receive data as JSON (JavaScript Object Notation), which maps naturally to JavaScript/TypeScript objects.
+
+### HTTP Verbs
+
+HTTP verbs define what operation to perform on a resource. Each verb has specific semantics:
+
+| HTTP Verb | Purpose | Example | Idempotent? | Has Request Body? |
+|-----------|---------|---------|-------------|-------------------|
+| **GET** | Retrieve a resource or list of resources | `GET /api/users` | Yes | No |
+| **POST** | Create a new resource | `POST /api/users` | No | Yes |
+| **PUT** | Replace an entire resource | `PUT /api/users/1` | Yes | Yes |
+| **PATCH** | Partially update a resource | `PATCH /api/users/1` | Yes | Yes |
+| **DELETE** | Remove a resource | `DELETE /api/users/1` | Yes | No |
+
+#### Detailed Breakdown
+
+**GET** — Read data without modifying anything on the server. GET requests should be safe and idempotent (calling them multiple times produces the same result). Example: loading a list of users when a page mounts.
+
+```
+GET /api/users          → Returns all users
+GET /api/users/42       → Returns user with ID 42
+GET /api/users?role=admin → Returns filtered results
+```
+
+**POST** — Create a new resource. The server assigns the ID and returns the created object with a `201 Created` status. POST is NOT idempotent — calling it twice creates two resources.
+
+```
+POST /api/users
+Body: { "name": "Alice", "email": "alice@example.com" }
+Response: 201 Created, { "id": 1, "name": "Alice", "email": "alice@example.com" }
+```
+
+**PUT** — Replace an existing resource entirely. You send the complete updated object. If the resource doesn't exist, some APIs create it (upsert behavior).
+
+```
+PUT /api/users/1
+Body: { "name": "Alice Smith", "email": "alice.smith@example.com", "role": "admin" }
+Response: 200 OK
+```
+
+**PATCH** — Partially update a resource. You send only the fields that changed, not the entire object. This is useful when a resource has many fields and you only need to update one.
+
+```
+PATCH /api/users/1
+Body: { "role": "admin" }
+Response: 200 OK
+```
+
+**DELETE** — Remove a resource. Typically returns `204 No Content` on success.
+
+```
+DELETE /api/users/1
+Response: 204 No Content
+```
+
+> **What does "idempotent" mean?** An operation is idempotent if performing it multiple times has the same effect as performing it once. `GET /api/users/1` is idempotent — calling it 10 times returns the same user each time. `DELETE /api/users/1` is idempotent — after the first call deletes the user, subsequent calls just return "not found" (the user is still deleted). `POST /api/users` is NOT idempotent — each call creates a new user.
+
+### Creating a .NET 10 Web API Project
+
+.NET 10 provides a streamlined template for creating Web APIs. Here's how to get started:
+
+#### Step 1: Install .NET 10
+
+Download and install the .NET 10 SDK from [https://dotnet.microsoft.com/download](https://dotnet.microsoft.com/download). Verify the installation:
+
+```bash
+dotnet --version
+# Should output 10.x.x
+```
+
+#### Step 2: Create the Project
+
+```bash
+# Create a new Web API project
+dotnet new webapi -n MyApi
+
+# Navigate into the project
+cd MyApi
+```
+
+This creates a project with the following key files:
+
+```
+MyApi/
+├── Program.cs              # Application entry point and configuration
+├── MyApi.csproj            # Project file (dependencies, target framework)
+├── Properties/
+│   └── launchSettings.json # Development server configuration
+├── appsettings.json        # Application configuration
+└── appsettings.Development.json  # Dev-specific configuration
+```
+
+#### Step 3: Understand Program.cs
+
+In .NET 10, `Program.cs` uses **minimal APIs** — a streamlined approach where you define routes directly without the ceremony of controllers and startup classes:
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the dependency injection container
+builder.Services.AddOpenApi();
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
+app.UseHttpsRedirection();
+
+// Define a simple GET endpoint
+app.MapGet("/api/hello", () => "Hello from .NET 10!");
+
+// Define CRUD endpoints for a resource
+app.MapGet("/api/users", () =>
+{
+    // Return a list of users
+    return Results.Ok(new[] {
+        new { Id = 1, Name = "Alice", Email = "alice@example.com" },
+        new { Id = 2, Name = "Bob", Email = "bob@example.com" }
+    });
+});
+
+app.MapGet("/api/users/{id}", (int id) =>
+{
+    // Return a single user by ID
+    return Results.Ok(new { Id = id, Name = "Alice", Email = "alice@example.com" });
+});
+
+app.MapPost("/api/users", (UserDto user) =>
+{
+    // Create a new user
+    return Results.Created($"/api/users/1", new { Id = 1, Name = user.Name, Email = user.Email });
+});
+
+app.MapPut("/api/users/{id}", (int id, UserDto user) =>
+{
+    // Update an existing user
+    return Results.Ok(new { Id = id, Name = user.Name, Email = user.Email });
+});
+
+app.MapDelete("/api/users/{id}", (int id) =>
+{
+    // Delete a user
+    return Results.NoContent();
+});
+
+app.Run();
+
+// DTO (Data Transfer Object) for request bodies
+record UserDto(string Name, string Email);
+```
+
+#### Step 4: Run the API
+
+```bash
+# Run the development server
+dotnet run
+
+# The API will be available at https://localhost:5001 (or the port shown in output)
+# Test it with curl:
+curl https://localhost:5001/api/hello
+```
+
+> **What is a DTO?** A Data Transfer Object is a simple class or record that defines the shape of data sent to or received from the API. Using DTOs instead of your database models prevents exposing internal implementation details (like database IDs or audit fields) to API consumers.
+
+> **Minimal APIs vs. Controllers:** .NET supports two styles for defining endpoints. **Minimal APIs** (shown above) define routes directly in `Program.cs` and are great for small services and learning. **Controller-based APIs** use classes decorated with `[ApiController]` and are better for large applications with many endpoints. Both produce the same HTTP endpoints — the choice is about code organization.
+
+### Connecting React to a .NET API
+
+Once your .NET API is running, your React application communicates with it using `fetch` or a library like `axios`:
+
+```tsx
+// In your React component or custom hook
+const fetchUsers = async (): Promise<User[]> => {
+  const response = await fetch('/api/users');
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  return response.json();
+};
+
+// Creating a new user
+const createUser = async (user: { name: string; email: string }): Promise<User> => {
+  const response = await fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(user),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  return response.json();
+};
+```
+
+> **Why check `response.ok`?** The `fetch` API does NOT throw an error for HTTP error status codes (like 404 or 500). It only throws on network failures. You must manually check `response.ok` (which is `true` for status codes 200–299) and throw an error yourself. This is a common pitfall that leads to silent failures in React applications.
+
+---
+
 ## Best Practices and Code Quality
 
 ### Component Organization
+
+A well-organized component follows the **Single Responsibility Principle** — it does one thing and does it well. The `Button` component below is a great example of this because it only handles rendering a button with a consistent style API. It doesn't fetch data, manage global state, or contain business logic. This makes it easy to reuse across the entire application and simple to test in isolation.
+
+Notice how the props interface uses **union types** (`'primary' | 'secondary' | 'danger'`) instead of plain strings. This prevents invalid values at compile time — a developer can't accidentally pass `variant="prrimary"` without TypeScript flagging the typo immediately. The `disabled` prop has a **default value** (`false`), so consumers of this component don't have to specify it unless they need to override it. Finally, `children: React.ReactNode` makes the button content-agnostic — it can wrap plain text, icons, or other elements.
+
 ```tsx
 // Good: Small, focused component
 interface ButtonProps {
@@ -2247,7 +2820,18 @@ const Button: React.FC<ButtonProps> = ({
 export default Button;
 ```
 
+> **Why is `type="button"` explicitly set?** By default, a `<button>` inside a `<form>` element has `type="submit"`, which causes the form to submit when clicked. Explicitly setting `type="button"` prevents this accidental behavior and is a defensive coding practice that avoids subtle, hard-to-debug issues.
+
+> **Why build class names from props instead of using a single `className` prop?** This approach creates a controlled API — the component guarantees that only valid combinations of variant and size classes are applied. If we accepted a raw `className` string, consumers could pass anything, breaking the component's visual consistency. This pattern is commonly called a **design-system component** because it enforces a predictable styling contract.
+
 ### TypeScript Best Practices
+
+TypeScript's type system is one of the most powerful tools for writing maintainable React code. The examples below demonstrate three key principles: **define clear data shapes with interfaces**, **use generics for reusable components**, and **let the type system document your code**.
+
+The `User` and `UserPreferences` interfaces below define an explicit contract for what a user object looks like. Any function or component that accepts a `User` will get full autocomplete and compile-time validation. This eliminates an entire category of bugs — you'll never accidentally try to access `user.username` when the actual field is `user.name`.
+
+The generic `List<T>` component is especially worth studying. Instead of hardcoding it to work with users or any specific data type, the generic parameter `<T>` lets it render a list of *anything*. The `renderItem` callback gives consumers full control over how each item looks, and `keyExtractor` ensures React can efficiently track items in the DOM. This pattern — sometimes called the **render prop** pattern — is used extensively in professional React codebases because it maximizes reusability without sacrificing type safety.
+
 ```tsx
 // Define clear interfaces
 interface User {
@@ -2308,7 +2892,20 @@ const UserList: React.FC = () => {
 };
 ```
 
+> **Why use `keyExtractor` instead of just using array index?** React uses keys to identify which items in a list have changed, been added, or been removed. Using array indices as keys can cause subtle bugs when items are reordered, inserted, or deleted — React may reuse the wrong DOM element. A stable, unique key (like `user.id`) ensures correct rendering behavior. By making `keyExtractor` a required prop, the `List` component forces consumers to think about this upfront.
+
+> **Why does `List` use `function` syntax instead of `const` with `React.FC`?** TypeScript has limited support for generics with arrow function components when using `React.FC`. The `function` declaration syntax makes it straightforward to add a generic parameter (`<T>`) to the component. This is a common pattern you'll see in libraries like Material UI and Ant Design.
+
 ### Performance Best Practices
+
+React re-renders a component whenever its parent re-renders or its state/props change. In most cases this is fast enough to be imperceptible, but for components that do **expensive calculations** or render **large lists**, unnecessary re-renders can cause noticeable lag. The three tools below — `React.memo`, `useMemo`, and `useCallback` — work together to give you fine-grained control over when work happens.
+
+- **`React.memo`** wraps a component so it only re-renders when its props actually change (by shallow comparison). This is useful for child components that are expensive to render.
+- **`useMemo`** caches the result of an expensive calculation and only recomputes it when its dependencies change. Without it, the calculation would re-run on every single render.
+- **`useCallback`** caches a function reference so it remains the same object between renders. This is critical when passing callbacks to memoized children — without `useCallback`, the child would receive a "new" function every render and `React.memo` would be defeated.
+
+In the example below, `ExpensiveComponent` is wrapped in `memo`. The parent uses `useMemo` to stabilize the `data` reference and `useCallback` to stabilize the `handleItemClick` function. Together, these ensure that incrementing `selectedId` or other unrelated parent state does **not** trigger a re-render of the expensive child.
+
 ```tsx
 import React, { memo, useMemo, useCallback } from 'react';
 
@@ -2358,14 +2955,25 @@ function expensiveCalculation(item: any) {
 }
 ```
 
+> **When should you NOT use these optimizations?** Memoization is not free — it trades memory for speed and adds code complexity. For simple components that render quickly, adding `memo`, `useMemo`, or `useCallback` can actually make performance *worse* due to the overhead of comparison checks. The rule of thumb: **measure first, optimize second.** Use React DevTools Profiler to identify actual bottlenecks before reaching for these tools.
+
 ---
 
 ## Sample Application Components
 
 ### User Dashboard Components
-These components can be combined to create a comprehensive user dashboard application:
+These components can be combined to create a comprehensive user dashboard application. Each component below demonstrates a different aspect of building production-quality React code — from rendering logic and conditional display to search/filter patterns and auto-dismissing notifications.
 
 #### 1. UserCard Component
+
+The `UserCard` is a **presentational component** — it receives data and callbacks through props and renders a visual card. It doesn't own any state or make API calls. This separation of concerns is a fundamental React best practice: presentational components handle *how things look*, while container components (like `UserList`) handle *how things work*.
+
+Key patterns demonstrated:
+- **Conditional rendering** with `&&` and ternary operators — the avatar section shows an image if one exists, otherwise falls back to a placeholder with the user's initial.
+- **Optional callback props** (`onEdit?`, `onDelete?`) — action buttons only render when their corresponding handlers are provided, making the component flexible for different contexts (e.g., an admin view vs. a read-only profile card).
+- **Utility function encapsulation** — `formatLastActive` converts a raw `Date` into a human-friendly string ("5m ago", "2h ago"). Keeping this logic inside the component keeps it co-located with the UI that uses it.
+- **Semantic CSS class naming** — classes like `user-card`, `online-indicator`, and `role-badge` make the component easy to style and easy to read.
+
 ```tsx
 import React from 'react';
 
@@ -2464,6 +3072,15 @@ export default UserCard;
 ```
 
 #### 2. SearchAndFilter Component
+
+The `SearchAndFilter` component demonstrates a common pattern in data-driven UIs: **controlled form inputs** that communicate upward through callback props. Rather than managing the filtered data itself, this component only manages the filter *values* and notifies the parent (`UserList`) whenever they change. The parent then applies those filters to the actual data. This is called **lifting state up** — the filtering logic lives in the component that owns the data.
+
+Key patterns demonstrated:
+- **Controlled inputs** — every `<input>` and `<select>` has its `value` tied to state and an `onChange` handler that updates that state. This means React is the single source of truth for what's in each field, which prevents the UI from getting out of sync with the data.
+- **Expandable/collapsible UI** — the `isFilterExpanded` boolean toggles a filter panel. This is a simple but effective UX pattern that keeps the interface clean by default while providing power users with more options.
+- **Reset functionality** — `clearFilters` resets all filter state to default values in a single action. Without this, users would need to manually reset each dropdown individually, which is a poor user experience.
+- **Callback composition** — `handleFilterChange` creates a new filter object and immediately passes it to the parent via `onFilter`. This ensures the parent always has the latest filter state without needing to poll or subscribe.
+
 ```tsx
 import React, { useState } from 'react';
 
@@ -2605,6 +3222,15 @@ export default SearchAndFilter;
 ```
 
 #### 3. UserList Component
+
+The `UserList` is a **container component** — it owns the filtering/sorting logic and coordinates the presentational components (`UserCard` and `SearchAndFilter`). This is where `useMemo` becomes essential: every time the user types a search query or changes a filter, the component re-renders, and without memoization, the entire filtering and sorting pipeline would re-execute even if the `users` array didn't change.
+
+Key patterns demonstrated:
+- **`useMemo` for derived data** — `filteredAndSortedUsers` is computed from `users`, `searchQuery`, and `filters`. The `useMemo` hook ensures this computation only runs when one of those three dependencies changes, not on every render.
+- **`useMemo` for deduplication** — `availableRoles` extracts the unique roles from the users array using `Set`. Without `useMemo`, this would create a new array reference on every render, which would cause `SearchAndFilter` to re-render unnecessarily.
+- **Multi-stage data pipeline** — the filtering applies search, role, and online status filters sequentially, then sorts the result. This pipeline pattern is clean, readable, and easy to extend with additional filters.
+- **Empty state handling** — when no users match the filters, the component shows a helpful message instead of a blank screen. This is a small UX detail that makes a big difference in professional applications.
+
 ```tsx
 import React, { useState, useMemo } from 'react';
 import UserCard, { User } from './UserCard';
@@ -2739,6 +3365,15 @@ export default UserList;
 ```
 
 #### 4. NotificationSystem Component
+
+The `NotificationSystem` demonstrates a **compound component pattern** — it's composed of `NotificationSystem` (the container) and `NotificationItem` (the individual toast). Each `NotificationItem` manages its own auto-dismiss timer via `useEffect`, which is a clean separation of concerns: the parent manages the list, and each child manages its own lifecycle.
+
+Key patterns demonstrated:
+- **`useEffect` for side effects** — each `NotificationItem` starts a `setTimeout` when it mounts and cleans it up (via the return function) when it unmounts. This prevents memory leaks — if a notification is manually dismissed before the timer fires, the cleanup function cancels the pending timeout.
+- **Auto-dismiss with configurable duration** — the `duration` prop defaults to 5000ms but can be customized per notification. This flexibility lets you show critical errors for longer than informational toasts.
+- **Accessible UI** — the close button includes `aria-label="Close notification"` for screen readers. Accessibility is not optional in professional applications — it's a legal requirement in many contexts and a best practice everywhere.
+- **Declarative list rendering** — the system simply maps over the `notifications` array. Adding, removing, or reordering notifications is handled by the parent's state; the `NotificationSystem` only cares about rendering the current list.
+
 ```tsx
 import React, { useState, useEffect } from 'react';
 
