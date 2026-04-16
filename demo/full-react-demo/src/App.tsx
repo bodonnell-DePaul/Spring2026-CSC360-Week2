@@ -17,6 +17,8 @@ import EffectDemo from './components/EffectDemo';
 import CustomHooksDemo from './components/CustomHooksDemo';
 import ContextDemo from './components/ContextDemo';
 import PerformanceDemo from './components/PerformanceDemo';
+import UseMemoDemo from './components/UseMemoDemo';
+import UseReducerDemo from './components/UseReducerDemo';
 
 import './App.css';
 
@@ -29,6 +31,8 @@ const tabs = [
   { id: 'hooks', label: '6. Custom Hooks' },
   { id: 'context', label: '7. Context API' },
   { id: 'performance', label: '8. Performance' },
+  { id: 'usememo', label: '9. useMemo' },
+  { id: 'usereducer', label: '10. useReducer' },
 ] as const;
 
 type TabId = (typeof tabs)[number]['id'];
@@ -47,6 +51,8 @@ const AppContent: React.FC = () => {
       case 'hooks': return <CustomHooksDemo />;
       case 'context': return <ContextDemo />;
       case 'performance': return <PerformanceDemo />;
+      case 'usememo': return <UseMemoDemo />;
+      case 'usereducer': return <UseReducerDemo />;
     }
   };
 
