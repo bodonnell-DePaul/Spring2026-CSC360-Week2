@@ -10,7 +10,7 @@
 4. [Working with Props and State](#working-with-props-and-state)
 5. [Event Handling in React](#event-handling-in-react)
 6. [React Hooks Deep Dive](#react-hooks-deep-dive)
-7. [Context API for State Management](#context-api-for-state-management)
+7. [Context API for State Management](#context-api-for-state-management) - Week 3 start
 8. [React Hooks: useMemo and useReducer](#react-hooks-usememo-and-usereducer)
 9. [Introduction to .NET Web API and REST](#introduction-to-net-web-api-and-rest)
 10. [Best Practices and Code Quality](#best-practices-and-code-quality)
